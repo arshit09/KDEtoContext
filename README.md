@@ -55,3 +55,4 @@ Run the `.bat` again and remove each device with **R**. Then delete the `%LOCALA
 - **No devices listed:** make sure the KDE Connect app is running and the device is paired.
 - **File didn't arrive:** the device must be reachable (same network, KDE Connect open). Check `KDEConnect-ContextMenu.log` for the exact error.
 - **Different install path:** edit `$KdeBin` and `$Icon` at the top of `KDEConnect-ContextMenu.ps1`.
+- **Moved or renamed this folder, or updated the script:** run the `.bat` once and press **Q**. That refreshes the installed launcher so sends are logged next to the script again.

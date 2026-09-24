@@ -42,35 +42,47 @@ function Invoke-Cli {
 }
 
 # Hidden launcher so no console window flashes when sending; it logs each send to the same log file.
+# The file is handed to kdeconnect-cli first and the log is written afterwards, so logging never delays a send.
 function Install-Launcher {
     New-Item -ItemType Directory -Force $DataDir | Out-Null
     @"
 Set a = WScript.Arguments
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
+logText = ""
 
+' Queues a log line; FlushLog writes the queue to disk.
 Sub WriteLog(level, msg)
-    On Error Resume Next
     d = Now
     ts = Year(d) & "-" & Right("0" & Month(d), 2) & "-" & Right("0" & Day(d), 2) & " " & FormatDateTime(d, 4) & ":" & Right("0" & Second(d), 2)
+    logText = logText & "[" & ts & "] [" & level & "] [send] " & msg & vbCrLf
+End Sub
+
+' Retries only while another send holds the log open (error 70); any other error, such as the
+' log folder having been moved, gives up at once instead of stalling.
+Sub FlushLog()
+    On Error Resume Next
     For i = 1 To 40
         Err.Clear
         Set f = fso.OpenTextFile("$LogFile", 8, True)
         If Err.Number = 0 Then
-            f.WriteLine "[" & ts & "] [" & level & "] [send] " & msg
+            f.Write logText
             f.Close
             Exit Sub
         End If
+        If Err.Number <> 70 Then Exit Sub
         WScript.Sleep 50
     Next
 End Sub
 
 If a.Count < 2 Then
     WriteLog "ERROR", "Launcher called with " & a.Count & " argument(s); expected device id and file path"
+    FlushLog
     WScript.Quit 1
 End If
 If Not fso.FileExists(a(1)) Then
     WriteLog "ERROR", "File not found or is a folder: " & a(1)
+    FlushLog
     WScript.Quit 1
 End If
 
@@ -80,6 +92,8 @@ WriteLog "INFO", "Sending """ & a(1) & """ to device " & a(0)
 WriteLog "INFO", "Command: " & cmd
 code = sh.Run(cmd, 0, True)
 
+' The file has been handed off; a failure while collecting output must not lose the queued log.
+On Error Resume Next
 If fso.FileExists(tmp) Then
     If fso.GetFile(tmp).Size > 0 Then
         For Each line In Split(fso.OpenTextFile(tmp).ReadAll, vbCrLf)
@@ -94,6 +108,7 @@ If code = 0 Then
 Else
     WriteLog "ERROR", "Exit code " & code & " (FAILED)"
 End If
+FlushLog
 "@ | Set-Content -Path $Launcher -Encoding ASCII
     Write-Log "Launcher written: $Launcher"
 }
@@ -158,6 +173,9 @@ if (-not (Test-Path $Cli)) {
     Write-Log "kdeconnect-cli not found at $Cli" 'ERROR'
     Write-Host "kdeconnect-cli not found at $Cli" -ForegroundColor Red; Read-Host 'Press Enter to exit'; exit 1
 }
+
+# Rewrite the launcher for existing entries so they pick up script updates and log next to this script, even after it was moved.
+if (Get-Installed) { Install-Launcher }
 
 while ($true) {
     $installed = @(Get-Installed)
